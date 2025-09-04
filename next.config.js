@@ -1,19 +1,10 @@
-/**
- * @type {import('next').NextConfig}
- */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
-    output: 'export', // Устанавливаем статический экспорт
-  
-    // Опционально: если хотите, чтобы все ссылки были с / в конце, раскомментируйте:
-    // trailingSlash: true,
-  
-    // Опционально: если хотите изменить папку для экспортированных файлов (по умолчанию 'out'),
-    // раскомментируйте и укажите новую папку:
-    distDir: 'out', // По умолчанию это 'out', можно изменить на любую другую
-  
-    // Другие опциональные настройки:
-    // skipTrailingSlashRedirect: true, // Для предотвращения автоматических редиректов
-  }
-  
-  module.exports = nextConfig;
-  
+  output: 'export',
+  trailingSlash: true,
+  basePath: '/EFS-1_1.3',
+  assetPrefix: '/EFS-1_1.3/',
+  images: { unoptimized: true },
+}
+
+module.exports = nextConfig;

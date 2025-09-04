@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import 'bootstrap/dist/css/bootstrap.min.css';
 import * as XLSX from 'xlsx';
+
 
 interface DataRow {
   ФИО: string;
-  СНИЛС: string;
+  СНИЛС: string; // В первой версии не используется, но сохранена для совместимости
   СУММА: number;
 }
 
@@ -29,7 +29,7 @@ const CompareTables = () => {
   const [filterMatches, setFilterMatches] = useState<boolean>(false);
   const [filterTerminated, setFilterTerminated] = useState<boolean>(false);
   const [sessionId, setSessionId] = useState<string>('');
-  const [isVersionTwo, setIsVersionTwo] = useState<boolean>(false); // Для переключения версии
+  const [isVersionTwo, setIsVersionTwo] = useState<boolean>(false); // false = версия 1 (9 колонок реестра), true = версия 2 (2 или 3 колонки реестра)
 
   // Генерация уникального ID сессии при первой загрузке
   useEffect(() => {
@@ -52,23 +52,23 @@ const CompareTables = () => {
     const words = text.trim().split(/\s+/);
     return cleanFIO(words.slice(0, 3).join(' '));
   };
-  
+
   // Загрузка данных из localStorage при первом рендеринге и при изменении sessionId
   useEffect(() => {
     if (!sessionId) return;
-    
+
     const savedRegistryText = localStorage.getItem(getStorageKey('registryText'));
     const savedFullReportText = localStorage.getItem(getStorageKey('fullReportText'));
     const savedFilterMatches = localStorage.getItem(getStorageKey('filterMatches'));
     const savedFilterTerminated = localStorage.getItem(getStorageKey('filterTerminated'));
     const savedIsVersionTwo = localStorage.getItem(getStorageKey('isVersionTwo'));
-    
+
     if (savedRegistryText) setRegistryText(savedRegistryText);
     if (savedFullReportText) setFullReportText(savedFullReportText);
     if (savedFilterMatches) setFilterMatches(savedFilterMatches === 'true');
     if (savedFilterTerminated) setFilterTerminated(savedFilterTerminated === 'true');
     if (savedIsVersionTwo) setIsVersionTwo(savedIsVersionTwo === 'true');
-    
+
     // Если есть сохраненные данные, автоматически запускаем сравнение
     if (savedRegistryText && savedFullReportText) {
       const savedDifferences = localStorage.getItem(getStorageKey('differences'));
@@ -84,13 +84,13 @@ const CompareTables = () => {
   // Сохранение данных в localStorage при их изменении
   useEffect(() => {
     if (!sessionId) return;
-    
+
     localStorage.setItem(getStorageKey('registryText'), registryText);
     localStorage.setItem(getStorageKey('fullReportText'), fullReportText);
     localStorage.setItem(getStorageKey('filterMatches'), String(filterMatches));
     localStorage.setItem(getStorageKey('filterTerminated'), String(filterTerminated));
     localStorage.setItem(getStorageKey('isVersionTwo'), String(isVersionTwo));
-    
+
     // Сохраняем результаты сравнения
     if (differences.length > 0) {
       localStorage.setItem(getStorageKey('differences'), JSON.stringify(differences));
@@ -101,11 +101,11 @@ const CompareTables = () => {
   const handleVersionChange = () => {
     // Сначала меняем версию
     setIsVersionTwo(!isVersionTwo);
-    
+
     // Очищаем результаты сравнения при смене версии
     setDifferences([]);
     localStorage.removeItem(getStorageKey('differences'));
-    
+
     // Запускаем перерасчет, если есть данные
     if (registryText.trim() && fullReportText.trim()) {
       // Используем setTimeout для обеспечения обновления isVersionTwo перед вызовом compareData
@@ -115,25 +115,45 @@ const CompareTables = () => {
 
   const cleanFIO = (fio: string) => fio.replace(/\s+/g, ' ').trim();
 
-  
-  const parseRegistryText = (text: string, version: boolean): DataRow[] => {
+
+  const parseRegistryText = (text: string, isVersionTwo: boolean): DataRow[] => {
     try {
       const rows = text
         .trim()
         .split('\n')
         .map((line, index) => {
           const parts = line.split('\t');
-          if (parts.length !== (version ? 2 : 3)) {
-            throw new Error(`Ошибка в строке ${index + 1}: неверный формат данных. Ожидаются ${version ? 2 : 3} колонки.`);
+          if (!isVersionTwo) { // Версия 1: 9 колонок (ФИО + 8 других колонок)
+            // Здесь сравнивается 1-я колонка (ФИО) и 9-я колонка (Сумма)
+            if (parts.length !== 9) {
+              throw new Error(`Ошибка в строке ${index + 1} реестра: неверный формат данных для версии 1. Ожидается 9 колонок.`);
+            }
+            const fio = cleanFIO(parts[0]);
+            const sum = parseSum(parts[8].trim()); // Берем сумму из 9-й колонки (индекс 8)
+            return {
+              ФИО: fio,
+              СНИЛС: '', // Не используется
+              СУММА: sum,
+            };
+          } else { // Версия 2: 2 или 3 колонки (ФИО + СНИЛС + Сумма) или (ФИО + Сумма)
+            // Здесь сравнивается 1-я колонка (ФИО) и 8-я колонка (Сумма)
+            if (parts.length < 8) { // Должно быть минимум 8 колонок для версии 2, чтобы взять 8-ю колонку
+                throw new Error(`Ошибка в строке ${index + 1} реестра: неверный формат данных для версии 2. Ожидается минимум 8 колонок.`);
+            }
+            const fio = cleanFIO(parts[0]); // ФИО из 1-й колонки
+            const sum = parseSum(parts[7].trim()); // Берем сумму из 8-й колонки (индекс 7)
+            return {
+              ФИО: fio,
+              СНИЛС: '', // СНИЛС здесь не используется, если берем 8-ю колонку как сумму
+              СУММА: sum,
+            };
           }
-          return {
-            ФИО: version ? extractFIO(parts[0]) : cleanFIO(parts[0]),
-            СНИЛС: version ? '' : parts[1].trim(),
-            СУММА: parseSum(parts[version ? 1 : 2].trim()) || 0,
-          };
         });
-  
-      if (version) {
+
+      // Логика для суммирования ФИО, если в версии 2 ФИО не уникальны и реестр состоит из 2-х колонок (ФИО, Сумма)
+      // Эта часть кода может быть пересмотрена, так как теперь мы ориентируемся на 8 колонок для V2
+      // Если V2 всегда будет иметь 8+ колонок, то этот блок может быть не нужен или должен быть адаптирован
+      if (isVersionTwo) { // Если мы во второй версии, и есть дубликаты ФИО, то их суммы складываются
         const mergedRows: Map<string, DataRow> = new Map();
         rows.forEach(row => {
           if (mergedRows.has(row.ФИО)) {
@@ -145,15 +165,15 @@ const CompareTables = () => {
         });
         return Array.from(mergedRows.values());
       }
-  
+
       return rows;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка при обработке данных');
+      setError(e instanceof Error ? e.message : 'Ошибка при обработке данных реестра');
       return [];
     }
   };
-  
-  
+
+
   const parseFullReportText = (text: string): FullReportRow[] => {
     try {
       return text
@@ -162,7 +182,7 @@ const CompareTables = () => {
         .map((line, index) => {
           const parts = line.split('\t').map((part) => part.trim());
           if (parts.length !== 2) {
-            throw new Error(`Ошибка в строке ${index + 1}: неверный формат данных. Ожидаются 2 колонки.`);
+            throw new Error(`Ошибка в строке ${index + 1} полного свода: неверный формат данных. Ожидаются 2 колонки.`);
           }
           return {
             ФИО: cleanFIO(parts[0]), // Убираем лишние пробелы в ФИО
@@ -170,7 +190,7 @@ const CompareTables = () => {
           };
         });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка при обработке данных');
+      setError(e instanceof Error ? e.message : 'Ошибка при обработке данных полного свода');
       return [];
     }
   };
@@ -204,25 +224,42 @@ const CompareTables = () => {
         registryMap.set(row.ФИО, row.СУММА);
       });
 
-      const results = fullReport.map((row) => {
+      const results: ComparisonResult[] = [];
+
+      // Сравнение Полного свода с Реестром
+      fullReport.forEach((row) => {
         const sumRegistry = registryMap.get(row.ФИО);
         let difference = 0;
         let status = '';
 
         if (sumRegistry === undefined) {
+          // ФИО есть в Полном своде, но нет в Реестре
           difference = row.СУММА;
-          status = 'Уволен или работает по ГПХ';
+          status = 'Нет в Реестре';
         } else {
           difference = row.СУММА - sumRegistry;
           status = row.СУММА === sumRegistry ? 'Совпадает' : 'Различается';
         }
 
-        return {
+        results.push({
           ФИО: row.ФИО,
           Разница: difference,
           Статус: status,
-        };
+        });
       });
+
+      // Проверка ФИО, которые есть в Реестре, но нет в Полном своде
+      registry.forEach((row) => {
+        const fioInFullReport = fullReport.some(frRow => cleanFIO(frRow.ФИО) === cleanFIO(row.ФИО));
+        if (!fioInFullReport) {
+          results.push({
+            ФИО: row.ФИО,
+            Разница: -row.СУММА, // Сумма из реестра со знаком минус
+            Статус: 'Нет в Своде',
+          });
+        }
+      });
+
 
       setDifferences(results);
     } catch (e) {
@@ -274,7 +311,7 @@ const CompareTables = () => {
       .filter(
         (row) =>
           (!filterMatches || row.Статус !== 'Совпадает') &&
-          (!filterTerminated || row.Статус !== 'Уволен или работает по ГПХ')
+          (!filterTerminated || (row.Статус !== 'Нет в Реестре' && row.Статус !== 'Нет в Своде'))
       )
       .reduce((total, row) => total + row.Разница, 0)
       .toFixed(2);
@@ -287,7 +324,7 @@ const CompareTables = () => {
       const filteredData = differences.filter(
         (row) =>
           (!filterMatches || row.Статус !== 'Совпадает') &&
-          (!filterTerminated || row.Статус !== 'Уволен или работает по ГПХ')
+          (!filterTerminated || (row.Статус !== 'Нет в Реестре' && row.Статус !== 'Нет в Своде'))
       );
 
       // Формируем данные для Excel
@@ -343,7 +380,7 @@ const CompareTables = () => {
           className="btn btn-outline-secondary mb-2"
           onClick={handleVersionChange}
         >
-          Переключить на {isVersionTwo ? 'версию с 3 колонками' : 'версию с 2 колонками'}
+          Переключить на {isVersionTwo ? 'Версия 1 (Реестр: ФИО + 8 колонок, Сумма в 9-й)' : 'Версия 2 (Реестр: ФИО в 1-й, Сумма в 8-й колонке)'}
         </button>
       </div>
 
@@ -352,8 +389,8 @@ const CompareTables = () => {
           <div className="form-group">
             <label className="mb-2">Реестр:</label>
             <div className="d-flex mb-2">
-              <button 
-                className="btn btn-outline-secondary btn-sm me-2" 
+              <button
+                className="btn btn-outline-secondary btn-sm me-2"
                 onClick={clearRegistry}
               >
                 Очистить реестр
@@ -362,13 +399,12 @@ const CompareTables = () => {
             <textarea
               className="form-control"
               rows={6}
-              placeholder={`Вставьте текст Реестра (${isVersionTwo ? 'ФИО[Tab]Сумма' : 'ФИО[Tab]СНИЛС[Tab]Сумма'})`}
+              placeholder={`Вставьте текст Реестра (${isVersionTwo ? 'ФИО[Tab]...[Tab]Сумма (всего от 8 колонок, ФИО - 1-я, Сумма - 8-я)' : 'ФИО[Tab]...[Tab]Сумма (всего 9 колонок, ФИО - 1-я, Сумма - 9-я)'})`}
               value={registryText}
               onChange={(e) => setRegistryText(e.target.value)}
             />
             <small className="form-text text-muted">
-              Формат: {isVersionTwo ? 'ФИО[Tab]Сумма' : 'ФИО[Tab]СНИЛС[Tab]Сумма'}
-              {isVersionTwo && ' (при дублирующихся ФИО суммы складываются)'}
+              Формат: {isVersionTwo ? 'Для версии 2: ФИО - 1-я колонка, Сумма - 8-я колонка. Минимум 8 колонок.' : 'Для версии 1: ФИО - 1-я колонка, Сумма - 9-я колонка. Всего 9 колонок.'}
             </small>
           </div>
         </div>
@@ -377,8 +413,8 @@ const CompareTables = () => {
           <div className="form-group">
             <label className="mb-2">Полный свод:</label>
             <div className="d-flex mb-2">
-              <button 
-                className="btn btn-outline-secondary btn-sm me-2" 
+              <button
+                className="btn btn-outline-secondary btn-sm me-2"
                 onClick={clearFullReport}
               >
                 Очистить полный свод
@@ -406,7 +442,7 @@ const CompareTables = () => {
         >
           Сравнить данные
         </button>
-        
+
         <button
           className="btn btn-outline-danger me-2 mb-2"
           onClick={clearAll}
@@ -421,7 +457,7 @@ const CompareTables = () => {
         >
           Новая сессия
         </button>
-        
+
         {/* Новая кнопка для экспорта в Excel */}
         <button
           className="btn btn-success mb-2"
@@ -445,7 +481,7 @@ const CompareTables = () => {
           className="btn btn-danger mb-2"
           onClick={() => setFilterTerminated(!filterTerminated)}
         >
-          {filterTerminated ? 'Показать уволенных' : 'Скрыть уволенных'}
+          {filterTerminated ? 'Показать отсутствующие' : 'Скрыть отсутствующие'}
         </button>
       </div>
 
@@ -464,12 +500,12 @@ const CompareTables = () => {
                 .filter(
                   (row) =>
                     (!filterMatches || row.Статус !== 'Совпадает') &&
-                    (!filterTerminated || row.Статус !== 'Уволен или работает по ГПХ')
+                    (!filterTerminated || (row.Статус !== 'Нет в Реестре' && row.Статус !== 'Нет в Своде'))
                 )
                 .map((row, index) => (
                   <tr
                     key={index}
-                    className={row.Статус === 'Уволен или работает по ГПХ' ? 'table-danger' : row.Разница === 0 ? 'table-success' : 'table-warning'}
+                    className={row.Статус === 'Нет в Реестре' || row.Статус === 'Нет в Своде' ? 'table-danger' : row.Разница === 0 ? 'table-success' : 'table-warning'}
                   >
                     <td>
                       <input
@@ -502,7 +538,7 @@ const CompareTables = () => {
                   {differences.filter(
                     (row) =>
                       (!filterMatches || row.Статус !== 'Совпадает') &&
-                      (!filterTerminated || row.Статус !== 'Уволен или работает по ГПХ')
+                      (!filterTerminated || (row.Статус !== 'Нет в Реестре' && row.Статус !== 'Нет в Своде'))
                   ).length}
                 </td>
               </tr>
