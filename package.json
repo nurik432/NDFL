@@ -2,7 +2,7 @@
   "name": "my-react-app",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://github.com/nurik432/NDFL",
+  "homepage": "https://nurik432.github.io/NDFL/",
   "scripts": {
     "dev": "next dev",
   "build": "next build && next export",
